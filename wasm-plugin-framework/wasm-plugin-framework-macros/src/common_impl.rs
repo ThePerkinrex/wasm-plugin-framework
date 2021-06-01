@@ -1,11 +1,12 @@
 use proc_macro2::TokenStream;
 use quote::{quote, ToTokens};
-use syn::{parse::Parse, Ident, LitStr, Token};
+use syn::{FnArg, Ident, LitStr, ReturnType, Token, TraitItemMethod, parse::Parse};
 
 pub struct CommonPluginImplementation {
     api_name: LitStr,
     api_version: LitStr,
     loader_name: Ident,
+    fns: Vec<TraitItemMethod>,
 }
 
 impl Parse for CommonPluginImplementation {
@@ -15,11 +16,16 @@ impl Parse for CommonPluginImplementation {
         let api_version = input.parse()?;
         let _: Token![,] = input.parse()?;
         let loader_name = input.parse()?;
-
+        let _: Token![,] = input.parse()?;
+        let mut fns = Vec::new();
+        while !input.is_empty() {
+            fns.push(input.parse()?);
+        }
         Ok(Self {
             api_name,
             api_version,
             loader_name,
+            fns,
         })
     }
 }
@@ -35,6 +41,53 @@ impl ToTokens for CommonPluginImplementation {
         let api_version_c = LitStr::new(&api_version_s, self.api_version.span());
         let api_version = &self.api_version;
         let loader_name = &self.loader_name;
+
+        let methods: Vec<TokenStream> = self
+            .fns
+            .iter()
+            .cloned()
+            .map(|x| {
+                let sig = x.sig;
+                let unsafety = sig.unsafety;
+                let fn_token = sig.fn_token;
+                let ident = sig.ident;
+                let args = sig.inputs;
+                let abi_args = args.clone().into_iter().map(|x| match x {
+                    FnArg::Receiver(_) => quote!(compile_error!(
+                        "Unexpected reciever (&self & co.) in arguments"
+                    )),
+                    FnArg::Typed(p) => {
+                        let pat = p.pat;
+                        quote! {(::wasm_plugin_framework::abi::into_abi(self, &#pat) as i32).into()}
+                    }
+                });
+                let output = sig.output;
+                let abi_fn_name = LitStr::new(&ident.to_string(), ident.span());
+
+                let calling_code = quote! {
+                    self.instance.exports.get_function(#abi_fn_name)
+                    .expect("Tried to load a non compliant plugin, which doesn't have the one of the API's required functions")
+                    .call(&[#(#abi_args),*]).expect("Unexpecteed error while calling API function")
+                };
+
+                let fn_body = match output {
+                    ReturnType::Default => quote! {
+                        #calling_code;
+                    },
+                    ReturnType::Type(_, _) => quote! {
+                        ::wasm_plugin_framework::abi::from_abi(self, #calling_code[0].unwrap_i32() as u32)
+                    }
+                };
+                quote! {
+                    pub #unsafety #fn_token #ident(&self, #args) #output {
+                        #fn_body
+                    }
+                }
+            })
+            .collect();
+
+        let fns = &self.fns;
+
         let r = quote! {
             /// Metadata generated from the common_plugin_impl macro. Contains the api name and version.
             pub mod metadata {
@@ -44,6 +97,16 @@ impl ToTokens for CommonPluginImplementation {
                 /// Null terminated version of the API version
                 pub const API_VERSION_C: &'static str = #api_version_c;
                 pub const API_VERSION: &'static str = #api_version;
+
+
+                #[doc(hidden)]
+                mod inner {
+                    use super::super::*;
+                    pub trait Plugin {
+                        #(#fns)*
+                    }
+                }
+                pub use inner::Plugin;
             }
 
             #[cfg(not(target_arch = "wasm32"))]
@@ -51,6 +114,7 @@ impl ToTokens for CommonPluginImplementation {
                 use ::std::path::Path;
                 use ::wasm_plugin_framework::wasmer::{imports, Extern, Instance, Memory, MemoryType, Module, Store, Value, ImportObject};
                 use ::wasm_plugin_framework::wasmer_wasi::WasiState;
+                use super::*;
 
                 pub struct #loader_name {
                     store: Store,
@@ -133,6 +197,10 @@ impl ToTokens for CommonPluginImplementation {
                             name: plugin_name,
                         }
                     }
+
+                    #(
+                        #methods
+                    )*
                 }
 
                 impl::wasm_plugin_framework::abi::PluginLoader for #loader_name {

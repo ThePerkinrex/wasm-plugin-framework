@@ -1,10 +1,13 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::parse_macro_input;
+use syn::{parse_macro_input};
 
 
 
 mod common_impl;
+
+
+
 
 
 #[proc_macro]
@@ -13,8 +16,11 @@ mod common_impl;
 /// ```
 /// common_plugin_implementation!("API NAME", "0.1.0", Plugin)
 /// ```
+/// const, async and generics will be ignored
+/// functions cannot have a self parameter, nor accept references
 pub fn common_plugin_implementation(tokens: TokenStream) -> TokenStream {
     let input = parse_macro_input!(tokens as common_impl::CommonPluginImplementation);
+       
     let r = quote!{
         #input
     };
@@ -35,17 +41,3 @@ pub fn plugin(tokens: TokenStream) -> TokenStream {
     };
     TokenStream::from(r)
 }
-
-
-mod common_type_impl;
-
-
-// #[proc_macro_attribute]
-// /// A way to pass custom type through the FFI boundary
-// pub fn common_type(tokens: TokenStream) -> TokenStream {
-//     let input = parse_macro_input!(tokens as plugin_impl::PluginImplementation);
-//     let r = quote!{
-//         #input
-//     };
-//     TokenStream::from(r)
-// }
