@@ -9,3 +9,10 @@ pub struct A {
     pub test2: u64,
 }
 
+
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+pub struct B {
+    pub test: String,
+    pub test2: String,
+}
+

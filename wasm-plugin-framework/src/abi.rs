@@ -89,7 +89,7 @@ pub use wasm32::*;
 
 #[cfg(not(target_arch="wasm32"))]
 pub mod not_wasm32 {
-    use serde::Serialize;
+    use serde::{Deserialize, Serialize};
     use wasmer::Memory;
 
 	pub trait PluginLoader {
@@ -113,6 +113,17 @@ pub mod not_wasm32 {
 			slice_mut[ptr+4..ptr+4+v.len()].copy_from_slice(&v);
 		};
 		ptr as u32
+	}
+
+	pub fn from_abi<P, T>(plugin_loader: &P, ptr: u32) -> T where T: for<'a> Deserialize<'a>, P: PluginLoader {
+		let m = plugin_loader.memory();
+		let view = m.view();
+		let ptr = ptr as usize;
+		let size_bytes = view[ptr..ptr+4].iter().map(|x| x.get()).collect::<Vec<u8>>();
+		let size = u32::from_le_bytes([size_bytes[0], size_bytes[1], size_bytes[2], size_bytes[3]]);
+		let data = view[ptr+4..ptr+4+size as usize].iter().map(|x| x.get()).collect::<Vec<u8>>();
+		plugin_loader.free_buffer(ptr as u32, size + 4);
+		super::from_bytes(&data)
 	}
 
 }

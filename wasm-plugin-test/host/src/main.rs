@@ -15,9 +15,12 @@ fn main() -> anyhow::Result<()> {
         println!("{}: {:?}", name, extrn);
     }
 
+    println!("{:?}", e.get_function("main").unwrap());
+
     let a = common::A { test: "Hey Ho".into(), test2: 1000000000000000000u64 };
     let ptr = common::wasm_plugin_framework::abi::into_abi(&p, &a);
-    e.get_function("main").unwrap().call(&[(ptr as i32).into()]).unwrap();
-
+    let r = e.get_function("main").unwrap().call(&[(ptr as i32).into()]).unwrap()[0].unwrap_i32() as u32;
+    let b: common::B = common::wasm_plugin_framework::abi::from_abi(&p, r);
+    println!("{:?}", b);
     Ok(())
 }
